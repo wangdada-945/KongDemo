@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "name": "get_with_params",
+      "method": "GET",
+      "params": {"q": "hello"},
+      "expected_status": 200
+    },
+    {
+      "name": "post_with_json",
+      "method": "POST",
+      "json": {"a": 1, "b": "x"},
+      "expected_status": 200
+    }
+  ]
+}

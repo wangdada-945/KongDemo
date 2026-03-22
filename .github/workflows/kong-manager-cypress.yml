@@ -1,0 +1,96 @@
+name: Kong Cypress E2E
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Required by docker-compose variable substitution in this repo.
+      # In GitHub, set these in: Settings -> Secrets and variables -> Actions.
+      KONG_PASSWORD: ${{ secrets.KONG_PASSWORD }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Ensure JUnit output dir
+        run: mkdir -p cypress/results
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Start Kong (docker-compose)
+        run: docker compose up -d
+
+      - name: Wait for Kong Admin API and Manager
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:8001/ >/dev/null 2>&1 && curl -fsS http://localhost:8002/ >/dev/null 2>&1; then
+              echo "Kong Admin API (:8001) and Manager (:8002) are up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for Kong"
+          docker compose logs --tail=200
+          exit 1
+
+      - name: Run Cypress
+        env:
+          CI: true
+          CYPRESS_BASE_URL: http://localhost:8002
+          CYPRESS_KONG_ADMIN_URL: http://localhost:8001
+          CYPRESS_KONG_USERNAME: ${{ secrets.KONG_USERNAME }}
+          CYPRESS_KONG_PASSWORD: ${{ secrets.KONG_PASSWORD }}
+        run: npm run test:ci
+
+      - name: Publish JUnit summary
+        if: always()
+        continue-on-error: true
+        uses: dorny/test-reporter@v1
+        with:
+          name: Cypress E2E
+          path: cypress/results/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload Cypress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-artifacts
+          path: |
+            cypress/screenshots
+            cypress/videos
+            cypress/results
+
+      - name: Teardown Kong
+        if: always()
+        run: docker compose down
+
