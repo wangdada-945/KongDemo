@@ -20,6 +20,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fail fast if repository secrets are missing (docker-compose requires KONG_PASSWORD / POSTGRES_PASSWORD).
+      - name: Check required secrets
+        env:
+          KONG_USERNAME: ${{ secrets.KONG_USERNAME }}
+        run: |
+          if [ -z "${POSTGRES_PASSWORD:-}" ] || [ -z "${KONG_PASSWORD:-}" ]; then
+            echo "::error::Missing POSTGRES_PASSWORD and/or KONG_PASSWORD. Add them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "${KONG_USERNAME:-}" ]; then
+            echo "::error::Missing KONG_USERNAME secret (needed for Cypress login)."
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
